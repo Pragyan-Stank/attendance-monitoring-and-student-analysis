@@ -7,10 +7,7 @@ def init_db():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     
-    # Drop the JSON students table to revert to InsightFace BLOBs
-    cursor.execute("DROP TABLE IF EXISTS students")
-    
-    # Students table
+    # Create Students table safely without dropping it
     cursor.execute('''CREATE TABLE IF NOT EXISTS students (
         student_id TEXT PRIMARY KEY,
         name TEXT,
