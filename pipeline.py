@@ -49,8 +49,8 @@ class AsyncPipeline:
                 allowed_modules=['detection', 'recognition'] 
             )
             
-            # Using 320x320 for rapid detector
-            self.face_app.prepare(ctx_id=-1, det_size=(320, 320), det_thresh=0.45) 
+            # Using 640x640 to prevent small/distant faces from being squashed into oblivion
+            self.face_app.prepare(ctx_id=-1, det_size=(640, 640), det_thresh=0.35) 
             self._initialized = True
             print("--- PIPELINE READY ---")
 
