@@ -1,0 +1,680 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Classroom Vision — Monitor</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --accent: #00e5ff;
+      --accent-glow: rgba(0, 229, 255, 0.2);
+      --bg: #050505;
+      --bg-surface: #0a0a0a;
+      --bg-raised: #111;
+      --text-primary: #eee;
+      --text-muted: #888;
+      --text-dim: #444;
+      --border: #1a1a1a;
+      --success: #00e676;
+      --danger: #ff3d57;
+      --warn: #ffb300;
+      --font-mono: 'IBM Plex Mono', monospace;
+      --font-sans: 'Inter', sans-serif;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: var(--bg);
+      color: var(--text-primary);
+      font-family: var(--font-sans);
+      overflow-x: hidden;
+      line-height: 1.5;
+    }
+
+    header {
+      padding: 16px 32px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg-surface);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      backdrop-filter: blur(10px);
+    }
+
+    .logo {
+      font-family: var(--font-mono);
+      font-weight: 700;
+      font-size: 1.1rem;
+      letter-spacing: 0.15em;
+      color: var(--accent);
+      text-transform: uppercase;
+    }
+
+    .status-bar { display: flex; align-items: center; gap: 20px; font-family: var(--font-mono); font-size: 0.65rem; }
+    .status-dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
+    .status-dot.online { background: var(--success); box-shadow: 0 0 10px var(--success); }
+    .status-dot.offline { background: var(--text-dim); }
+    .status-dot.pulsing { animation: pulse-dot 1.5s infinite; }
+    @keyframes pulse-dot { 0% { opacity: 0.4; } 50% { opacity: 1; } 100% { opacity: 0.4; } }
+
+    nav.tab-bar {
+      display: flex;
+      background: var(--bg-surface);
+      border-bottom: 1px solid var(--border);
+      padding: 0 32px;
+    }
+    .tab {
+      padding: 16px 24px;
+      cursor: pointer;
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      border-bottom: 2px solid transparent;
+      transition: all 0.2s;
+      letter-spacing: 0.1em;
+      background: transparent;
+      border: none;
+      border-bottom: 2px solid transparent;
+    }
+    .tab.active { color: var(--accent); border-bottom-color: var(--accent); background: var(--accent-glow); }
+    .tab:hover:not(.active) { color: var(--text-primary); }
+
+    .tab-content { display: none; padding: 32px; max-width: 1400px; margin: 0 auto; animation: fadeUp 0.4s ease; }
+    .tab-content.active { display: block; }
+    @keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+    .two-col { display: grid; grid-template-columns: 1fr 400px; gap: 32px; margin-bottom: 32px; }
+    .panel { background: var(--bg-surface); border: 1px solid var(--border); border-radius: 4px; padding: 24px; position: relative; }
+    .panel-header {
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      margin-bottom: 20px;
+      display: flex;
+      justify-content: space-between;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+    
+    .fps { color: var(--text-dim); font-size: 0.6rem; }
+
+    .preview-box {
+      width: 100%;
+      aspect-ratio: 16/9;
+      background: #000;
+      border-radius: 2px;
+      overflow: hidden;
+      position: relative;
+      border: 1px solid var(--border);
+    }
+    video, canvas { width: 100%; height: 100%; object-fit: cover; }
+
+    #monitor-canvas-container { position: relative; width: 100%; aspect-ratio: 16/9; border: 1px solid var(--border); background: #000; }
+    #monitor-canvas-container canvas { width: 100%; height: 100%; display: none; }
+    
+    #feed-placeholder {
+      position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+      font-family: var(--font-mono); font-size: 0.7rem; color: var(--text-dim); letter-spacing: 0.1em;
+    }
+
+    #monitor-loading-overlay {
+      position: absolute; inset: 0; background: rgba(0,0,0,0.8);
+      display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 100;
+      font-family: var(--font-mono); gap: 16px;
+    }
+    .scanner-line { width: 80%; height: 2px; background: var(--accent); box-shadow: 0 0 15px var(--accent); animation: scan 2s infinite ease-in-out; }
+    @keyframes scan { 0%, 100% { transform: translateY(-30px); opacity: 0; } 50% { transform: translateY(30px); opacity: 1; } }
+    .loading-text { color: var(--accent); font-size: 0.7rem; letter-spacing: 0.2em; animation: pulse 1.5s infinite; }
+
+    .btn-row { display: flex; gap: 12px; margin-top: 16px; }
+
+    input[type="text"] {
+      width: 100%;
+      background: var(--bg-raised);
+      border: 1px solid var(--border);
+      color: var(--text-primary);
+      font-family: var(--font-mono);
+      padding: 10px 14px;
+      border-radius: 2px;
+      outline: none;
+      margin-bottom: 16px;
+      font-size: 0.9rem;
+    }
+
+    button {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text-primary);
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      letter-spacing: 0.1em;
+      padding: 10px 20px;
+      border-radius: 2px;
+      cursor: pointer;
+      transition: all 0.2s;
+      text-transform: uppercase;
+    }
+    button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); background: var(--accent-glow); }
+    button:disabled { opacity: 0.35; cursor: not-allowed; }
+
+    .primary-btn { border-color: var(--accent); color: var(--accent); }
+    .danger-btn { border-color: var(--danger); color: var(--danger); }
+
+    table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+    th { text-align: left; border-bottom: 1px solid var(--border); padding: 12px; color: var(--text-muted); font-size: 0.65rem; font-family: var(--font-mono); }
+    td { padding: 12px; border-bottom: 1px solid var(--bg-raised); }
+
+    .count-badge { padding: 2px 8px; border-radius: 10px; background: var(--bg-raised); color: var(--accent); border: 1px solid var(--border); font-size: 0.7rem; }
+    .badge-present { color: var(--success); font-family: var(--font-mono); font-size: 0.7rem; }
+    .badge-absent { color: var(--text-dim); font-family: var(--font-mono); font-size: 0.7rem; }
+    
+    .distraction-pill { font-size: 0.6rem; padding: 2px 6px; background: rgba(255, 61, 87, 0.2); color: var(--danger); border-radius: 2px; margin-left: 8px; }
+
+    /* Modal */
+    .modal-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.9); z-index: 1000;
+      display: none; align-items: center; justify-content: center; backdrop-filter: blur(5px);
+    }
+    .modal {
+      background: var(--bg-surface); border: 1px solid var(--border); padding: 32px; border-radius: 4px;
+      width: 90%; max-width: 800px; max-height: 90vh; overflow-y: auto;
+    }
+    .modal h2 { font-family: var(--font-mono); font-size: 1.2rem; margin-bottom: 24px; color: var(--accent); letter-spacing: 0.1em; }
+    .report-stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 32px; }
+    .stat-item { padding: 16px; border: 1px solid var(--border); text-align: center; background: var(--bg-raised); }
+    .stat-val { font-size: 2rem; font-weight: 600; font-family: var(--font-mono); color: var(--text-primary); margin-bottom: 4px; }
+    .stat-lbl { font-size: 0.6rem; color: var(--text-muted); letter-spacing: 0.1em; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="logo">CLASSROOM VISION // DEEPSORT</div>
+    <div class="status-bar">
+      <span id="connection-status" class="status-dot offline"></span>
+      <span id="ai-status-label">INITIALizing AI...</span>
+    </div>
+  </header>
+
+  <nav class="tab-bar">
+    <button class="tab active" data-tab="register">REGISTER</button>
+    <button class="tab" data-tab="monitor">MONITOR</button>
+  </nav>
+
+  <!-- TAB: REGISTER -->
+  <section id="tab-register" class="tab-content active">
+    <div class="two-col">
+      <div class="panel">
+        <div class="panel-header">ENROLLMENT CAMERA</div>
+        <div class="preview-box">
+          <video id="reg-video" autoplay playsinline muted></video>
+          <canvas id="reg-canvas" style="display:none"></canvas>
+        </div>
+        <div class="btn-row">
+          <button id="btn-capture-reg" class="primary-btn">CAPTURE FACE</button>
+          <button id="btn-retake-reg" style="display:none">RETAKE</button>
+        </div>
+        <div id="reg-status" style="margin-top: 10px; font-family: var(--font-mono); font-size: 0.7rem; color:var(--accent);"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-header">STUDENT INFO</div>
+        <input type="text" id="reg-id" placeholder="STUDENT ID (e.g. 101)">
+        <input type="text" id="reg-name" placeholder="FULL NAME">
+        <button id="btn-enroll" style="width: 100%;" class="primary-btn" disabled>ENROLL STUDENT</button>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-header">ENROLLED DATABASE <span id="student-count" class="count-badge">0</span></div>
+      <table id="students-table">
+        <thead>
+          <tr><th>PHOTO</th><th>ID</th><th>NAME</th><th>ACTION</th></tr>
+        </thead>
+        <tbody id="students-tbody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- TAB: MONITOR -->
+  <section id="tab-monitor" class="tab-content">
+    <div class="panel" style="margin-bottom: 24px;">
+      <div style="display: flex; gap: 16px;">
+        <input type="text" id="mon-label" placeholder="SESSION LABEL" style="margin-bottom: 0;">
+        <button id="btn-session-start" class="primary-btn">START SESSION</button>
+        <button id="btn-session-end" class="danger-btn" style="display:none">END SESSION</button>
+      </div>
+    </div>
+    <div class="two-col">
+      <div class="panel" style="padding: 0; overflow: hidden; border:none; border-right: 1px solid var(--border);">
+        <div class="panel-header" style="margin: 24px;">
+          LIVE FEED <span id="fps-counter" class="fps">AI OFF</span>
+        </div>
+        <div id="monitor-canvas-container">
+          <div id="monitor-loading-overlay">
+            <div class="scanner-line"></div>
+            <div class="loading-text">PRE-WARMING AI COMPONENTS...</div>
+          </div>
+          <canvas id="monitor-canvas" width="1280" height="720"></canvas>
+          <div id="feed-placeholder">STATION IDLE — START SESSION</div>
+          <video id="monitor-video" autoplay playsinline style="display:none"></video>
+        </div>
+      </div>
+      <div class="panel" style="border:none;">
+        <div class="panel-header">ATTENDANCE LOG <span id="present-count" class="count-badge">0 / 0</span></div>
+        <table id="attendance-table">
+          <thead>
+            <tr><th>●</th><th>NAME</th><th>STATUS</th><th>ENG%</th></tr>
+          </thead>
+          <tbody id="attendance-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- Modal -->
+  <div class="modal-overlay" id="session-modal">
+    <div class="modal">
+      <h2>SESSION REPORT</h2>
+      <div id="modal-content"></div>
+      <div class="btn-row" style="margin-top:24px; justify-content:flex-end;">
+        <button id="btn-export-csv" class="primary-btn">EXPORT CSV</button>
+        <button id="btn-close-modal">CLOSE</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" style="position: fixed; bottom: 20px; right: 20px; background: var(--bg-surface); padding: 12px 24px; border: 1px solid var(--accent); display: none; z-index: 1000; font-family: var(--font-mono); font-size: 0.8rem;"></div>
+
+  <script>
+    const API = window.location.origin;
+    
+    let enrolledStudents = [];
+    let isSessionActive = false;
+    let currentSessionId = null;
+    let monitorStream = null;
+    let attendanceState = {}; // { student_id: { present... } }
+    
+    // Smooth rendering locks
+    let lastRenderTime = Date.now();
+    let smoothedDetections = {}; 
+    let isProcessingFrame = false;
+    let aiReady = false;
+
+    // Check Server Readiness
+    async function checkAiStatus() {
+      try {
+        const res = await fetch(`${API}/api/status`);
+        const data = await res.json();
+        if (data.initialized) {
+          aiReady = true;
+          document.getElementById('monitor-loading-overlay').style.display = 'none';
+          document.getElementById('connection-status').className = 'status-dot online pulsing';
+          document.getElementById('ai-status-label').textContent = 'AI READY';
+        } else {
+          setTimeout(checkAiStatus, 1000);
+        }
+      } catch (e) {
+        setTimeout(checkAiStatus, 2000);
+      }
+    }
+
+    // Database Sync
+    async function refreshStudents() {
+      const res = await fetch(`${API}/api/students`);
+      enrolledStudents = await res.json();
+      document.getElementById('student-count').textContent = enrolledStudents.length;
+      
+      const tbody = document.getElementById('students-tbody');
+      tbody.innerHTML = enrolledStudents.map(s => `
+        <tr>
+          <td><img src="${s.photo_b64}" style="width: 40px; height: 40px; border-radius: 2px;"></td>
+          <td>${s.student_id}</td>
+          <td>${s.name}</td>
+          <td><button onclick="deleteStudent('${s.student_id}')">DELETE</button></td>
+        </tr>
+      `).join('');
+    }
+
+    async function deleteStudent(id) {
+      if(!confirm("Delete?")) return;
+      await fetch(`${API}/api/students/${id}`, { method: 'DELETE' });
+      refreshStudents();
+    }
+
+    // Enrollment
+    const regVideo = document.getElementById('reg-video');
+    const btnEnroll = document.getElementById('btn-enroll');
+    let capturedB64 = null;
+
+    document.getElementById('btn-capture-reg').onclick = async () => {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      regVideo.srcObject = stream;
+      
+      document.getElementById('btn-capture-reg').style.display = 'none';
+      const btnCaptureSnapshot = document.createElement('button');
+      btnCaptureSnapshot.className = 'primary-btn';
+      btnCaptureSnapshot.textContent = 'SNAPSHOT';
+      document.querySelector('#btn-capture-reg').parentElement.insertBefore(btnCaptureSnapshot, document.getElementById('btn-capture-reg'));
+      
+      btnCaptureSnapshot.onclick = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = 640; canvas.height = 480;
+        canvas.getContext('2d').drawImage(regVideo, 0, 0, 640, 480);
+        capturedB64 = canvas.toDataURL('image/jpeg');
+        document.getElementById('reg-status').textContent = "✓ SNAPSHOT TAKEN. READY FOR ENROLLMENT.";
+        btnEnroll.disabled = false;
+        stream.getTracks().forEach(t => t.stop());
+        regVideo.srcObject = null;
+        btnCaptureSnapshot.remove();
+        document.getElementById('btn-capture-reg').style.display = 'inline-block';
+      };
+    };
+
+    btnEnroll.onclick = async () => {
+      const id = document.getElementById('reg-id').value;
+      const name = document.getElementById('reg-name').value;
+      btnEnroll.disabled = true;
+      document.getElementById('reg-status').textContent = "EXTRACTING EMBEDDINGS (SERVER)...";
+      
+      try {
+        const res = await fetch(`${API}/api/register`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ student_id: id, name, image_b64: capturedB64 })
+        });
+        if(res.ok) {
+          showToast("Student Enrolled successfully!", "success");
+          document.getElementById('reg-id').value = '';
+          document.getElementById('reg-name').value = '';
+          document.getElementById('reg-status').textContent = "READY";
+          refreshStudents();
+        } else {
+          const err = await res.json();
+          showToast(err.detail, "error");
+          document.getElementById('reg-status').textContent = "ERROR: " + err.detail;
+          btnEnroll.disabled = false;
+        }
+      } catch(e) {
+        showToast("Network error.", "error");
+        btnEnroll.disabled = false;
+      }
+    };
+
+    /* Monitoring System */
+    const monVideo = document.getElementById('monitor-video');
+    const monCanvas = document.getElementById('monitor-canvas');
+    let lastServerData = null;
+
+    document.getElementById('btn-session-start').onclick = async () => {
+      if (!aiReady) return showToast("Please wait for AI engine to finish loading.", "error");
+      
+      const label = document.getElementById('mon-label').value || "Session";
+      
+      try {
+        const res = await fetch(`${API}/api/session/start`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ label })
+        });
+        const data = await res.json();
+        currentSessionId = data.session_id;
+        
+        initAttendanceTable();
+        
+        monitorStream = await navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720 } });
+        monVideo.srcObject = monitorStream;
+        
+        isSessionActive = true;
+        document.getElementById('btn-session-start').style.display = 'none';
+        document.getElementById('btn-session-end').style.display = 'inline-block';
+        document.getElementById('feed-placeholder').style.display = 'none';
+        monCanvas.style.display = 'block';
+        
+        // Start loops
+        requestAnimationFrame(renderLoop);
+        triggerAiInference();
+        
+      } catch (e) {
+        showToast("Failed to start session.", "error");
+      }
+    };
+
+    // Constant 60 FPS Render Loop
+    function renderLoop() {
+      if (!isSessionActive || !monitorStream) return;
+      
+      const now = Date.now();
+      const elapsed = now - lastRenderTime;
+      
+      if (elapsed >= 16) { // ~60 FPS update
+        lastRenderTime = now;
+        const ctx = monCanvas.getContext('2d');
+        ctx.drawImage(monVideo, 0, 0, monCanvas.width, monCanvas.height);
+
+        // Draw instant raw detections directly from server
+        if (lastServerData && lastServerData.students) {
+          const scaleX = monCanvas.width / 640;
+          const scaleY = monCanvas.height / 640;
+
+          lastServerData.students.forEach(s => {
+            const rawBox = {
+              x1: s.bbox[0] * scaleX,
+              y1: s.bbox[1] * scaleY,
+              x2: s.bbox[2] * scaleX,
+              y2: s.bbox[3] * scaleY,
+              name: s.name,
+              student_id: s.student_id,
+              confidence: s.confidence,
+              is_focused: s.is_focused,
+              distraction_type: s.distraction_type
+            };
+            drawBoundingBox(ctx, rawBox);
+          });
+        }
+      }
+      requestAnimationFrame(renderLoop);
+    }
+
+    function drawBoundingBox(ctx, s) {
+      const {x1, y1, x2, y2} = s;
+      let color = '#00e5ff'; // Default Tracking
+      if (!s.student_id) color = '#888888'; // Grey (Unknown Face)
+      else if (s.distraction_type === 'phone') color = '#ff3d57'; // Red
+      else if (s.distraction_type) color = '#ffb300'; // Yellow
+      else if (!s.is_focused) color = '#ffb300'; // Yellow
+
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+      
+      const labelColor = color;
+      const tY = y1 - 22 > 10 ? y1 - 22 : y1 + 2;
+      ctx.fillStyle = labelColor;
+      ctx.fillRect(x1, tY, x2 - x1, 22);
+
+      let label = s.student_id ? `${s.name} [${s.student_id}] ${(s.confidence*100).toFixed(0)}%` : `Unknown [null]`;
+      ctx.fillStyle = "#000";
+      ctx.font = "12px var(--font-mono)";
+      ctx.fillText(label, x1 + 4, tY + 15);
+      
+      // Status dot icon
+      const dotColor = s.is_focused ? '#00e676' : s.distraction_type === 'phone' ? '#ff3d57' : '#ffb300';
+      ctx.beginPath();
+      ctx.arc(x2 - 10, tY + 11, 5, 0, 2*Math.PI);
+      ctx.fillStyle = dotColor;
+      ctx.fill();
+    }
+
+    // Dynamic AI Request Polling (Gated for max CPU perf)
+    async function triggerAiInference() {
+      if (!isSessionActive || !monitorStream || isProcessingFrame) return;
+      isProcessingFrame = true;
+      const startTime = Date.now();
+
+      try {
+        // Send a squashed frame to server
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = 640;
+        tempCanvas.height = 640;
+        tempCanvas.getContext('2d').drawImage(monVideo, 0, 0, 640, 640);
+        
+        const b64 = tempCanvas.toDataURL('image/jpeg', 0.5).split(',')[1];
+        
+        const res = await fetch(`${API}/api/process_frame`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ session_id: currentSessionId, frame_b64: b64 })
+        });
+        
+        if (res.ok) {
+           const data = await res.json();
+           if (data.students) {
+               lastServerData = data;
+               updateLiveTable(data.students);
+           }
+        }
+      } catch (e) {
+        console.error("Inference dropped", e);
+      } finally {
+        const elapsed = Date.now() - startTime;
+        document.getElementById('fps-counter').textContent = `AI Response: ${elapsed}ms`;
+        isProcessingFrame = false;
+        
+        if (isSessionActive) setTimeout(triggerAiInference, 10);
+      }
+    }
+
+    function initAttendanceTable() {
+      attendanceState = {};
+      const tbody = document.getElementById('attendance-tbody');
+      tbody.innerHTML = enrolledStudents.map(s => {
+        attendanceState[s.student_id] = { name: s.name, present: false, reqCount: 0 };
+        return `
+          <tr id="row-${s.student_id}">
+            <td><span class="status-dot offline" id="dot-${s.student_id}"></span></td>
+            <td><b id="name-${s.student_id}">${s.name}</b><br><small style="color:var(--text-dim);font-size:0.6rem;">${s.student_id}</small></td>
+            <td><span class="badge-absent" id="status-${s.student_id}">ABSENT</span></td>
+            <td id="eng-${s.student_id}">0%</td>
+          </tr>
+        `;
+      }).join('');
+      document.getElementById('present-count').textContent = `0 / ${enrolledStudents.length}`;
+    }
+
+    function updateLiveTable(students) {
+      students.forEach(s => {
+        if (!s.student_id) return;
+        const state = attendanceState[s.student_id];
+        if (!state) return;
+        
+        if (!state.present && s.present) {
+          state.present = true;
+          document.getElementById(`dot-${s.student_id}`).className = 'status-dot online';
+          document.getElementById(`status-${s.student_id}`).className = 'badge-present';
+          document.getElementById(`status-${s.student_id}`).textContent = 'PRESENT';
+          showToast(`${s.name} Recognized`, "success");
+        }
+        
+        const engPct = Math.round(s.engagement_score * 100);
+        document.getElementById(`eng-${s.student_id}`).textContent = engPct + '%';
+        
+        if (s.distraction_type) {
+          const nameCell = document.getElementById(`name-${s.student_id}`).parentElement;
+          if (!nameCell.querySelector('.distraction-pill')) {
+             const pill = document.createElement('span');
+             pill.className = 'distraction-pill';
+             pill.textContent = s.distraction_type.toUpperCase();
+             nameCell.appendChild(pill);
+             setTimeout(() => pill.remove(), 2500);
+          }
+        }
+      });
+      const present = Object.values(attendanceState).filter(s => s.present).length;
+      document.getElementById('present-count').textContent = `${present} / ${enrolledStudents.length}`;
+    }
+
+    // Ending Session
+    document.getElementById('btn-session-end').onclick = async () => {
+      if(!confirm("End session?")) return;
+      isSessionActive = false;
+      document.getElementById('btn-session-start').style.display = 'inline-block';
+      document.getElementById('btn-session-end').style.display = 'none';
+      
+      monCanvas.style.display = 'none';
+      document.getElementById('feed-placeholder').style.display = 'flex';
+      monitorStream.getTracks().forEach(t => t.stop());
+      
+      const res = await fetch(`${API}/api/session/end`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ session_id: currentSessionId })
+      });
+      const data = await res.json();
+      renderReportModal(data.report);
+      document.getElementById('session-modal').style.display = 'flex';
+    };
+
+    function renderReportModal(report) {
+       const total = report.students.length;
+       const present = report.students.filter(s => s.present).length;
+       const avgEng = (report.students.reduce((acc, s) => acc + (s.avg_engagement || 0), 0) / (total || 1)) * 100;
+       
+       document.getElementById('modal-content').innerHTML = `
+        <div class="report-stat-grid">
+          <div class="stat-item"><div class="stat-val">${present}</div><div class="stat-lbl">PRESENT</div></div>
+          <div class="stat-item"><div class="stat-val">${total - present}</div><div class="stat-lbl">ABSENT</div></div>
+          <div class="stat-item"><div class="stat-val">${avgEng.toFixed(1)}%</div><div class="stat-lbl">AVG ENGAGEMENT</div></div>
+        </div>
+        <table>
+          <thead><tr><th>STUDENT</th><th>STATUS</th><th>ENG%</th></tr></thead>
+          <tbody>
+            ${report.students.map(s => `
+              <tr>
+                <td><b>${s.name}</b><br><small>${s.student_id}</small></td>
+                <td><span class="${s.present ? 'badge-present' : 'badge-absent'}">${s.present ? 'PRESENT' : 'ABSENT'}</span></td>
+                <td>${(s.avg_engagement * 100).toFixed(0)}%</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+       `;
+    }
+
+    document.getElementById('btn-close-modal').onclick = () => document.getElementById('session-modal').style.display = 'none';
+
+    document.getElementById('btn-export-csv').onclick = () => {
+      let csv = "Student ID,Name,Status,Engagement\n";
+      Object.entries(attendanceState).forEach(([id, data]) => {
+         csv += `${id},${data.name},${data.present?'PRESENT':'ABSENT'},${document.getElementById('eng-'+id).textContent}\n`;
+      });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+      a.download = `attendance_report.csv`;
+      a.click();
+    }
+
+    // Tabs
+    document.querySelectorAll('.tab').forEach(t => {
+      t.onclick = () => {
+        document.querySelectorAll('.tab, .tab-content').forEach(x => x.classList.remove('active'));
+        t.classList.add('active');
+        document.getElementById(`tab-${t.dataset.tab}`).classList.add('active');
+      };
+    });
+
+    function showToast(msg, type="info") {
+      const el = document.getElementById('toast');
+      el.textContent = msg; el.style.borderColor = type==='error'?'var(--danger)':'var(--accent)';
+      el.style.display = 'block'; setTimeout(()=>el.style.display='none', 3000);
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      checkAiStatus();
+      refreshStudents();
+    });
+  </script>
+</body>
+</html>
