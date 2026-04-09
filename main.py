@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import uuid
 import database as db
-from pipeline import FastPipeline
+from pipeline import AsyncPipeline
 import traceback
 from starlette.concurrency import run_in_threadpool
 import base64
@@ -12,7 +12,7 @@ import base64
 app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-pipeline = FastPipeline()
+pipeline = AsyncPipeline()
 
 class RegisterRequest(BaseModel):
     student_id: str

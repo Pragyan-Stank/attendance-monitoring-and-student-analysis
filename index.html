@@ -442,73 +442,115 @@
       }
     };
 
-    // Constant 60 FPS Render Loop
+    // --- PREDICTIVE VELOCITY LERP LOOP (60 FPS) ---
     function renderLoop() {
       if (!isSessionActive || !monitorStream) return;
       
       const now = Date.now();
-      const elapsed = now - lastRenderTime;
+      const dt = (now - lastRenderTime) / 1000; // delta time in seconds
+      lastRenderTime = now;
       
-      if (elapsed >= 16) { // ~60 FPS update
-        lastRenderTime = now;
-        const ctx = monCanvas.getContext('2d');
-        ctx.drawImage(monVideo, 0, 0, monCanvas.width, monCanvas.height);
-
-        // Draw instant raw detections directly from server
-        if (lastServerData && lastServerData.students) {
-          const scaleX = monCanvas.width / 640;
-          const scaleY = monCanvas.height / 640;
-
-          lastServerData.students.forEach(s => {
-            const rawBox = {
-              x1: s.bbox[0] * scaleX,
-              y1: s.bbox[1] * scaleY,
-              x2: s.bbox[2] * scaleX,
-              y2: s.bbox[3] * scaleY,
-              name: s.name,
-              student_id: s.student_id,
-              confidence: s.confidence,
-              is_focused: s.is_focused,
-              distraction_type: s.distraction_type
-            };
-            drawBoundingBox(ctx, rawBox);
-          });
-        }
+      const ctx = monCanvas.getContext('2d');
+      ctx.drawImage(monVideo, 0, 0, monCanvas.width, monCanvas.height);
+      
+      // Update Detections smoothly
+      if (lastServerData && lastServerData.students) {
+          updatePredictiveDetections(lastServerData.students, dt);
+          lastServerData = null; // consume it so we only update targets once per backend frame
       }
+
+      // Draw and apply velocity
+      Object.keys(smoothedDetections).forEach(id => {
+          const s = smoothedDetections[id];
+          
+          // Apply velocity (prediction)
+          s.x1 += s.vx * dt;
+          s.y1 += s.vy * dt;
+          s.x2 += s.vx * dt;
+          s.y2 += s.vy * dt;
+
+          drawBoundingBox(ctx, s);
+      });
+
       requestAnimationFrame(renderLoop);
+    }
+
+    function updatePredictiveDetections(newDetections, dt) {
+        const scaleX = monCanvas.width / 640;
+        const scaleY = monCanvas.height / 640;
+        const lerpFactor = 0.5; // catch up speed
+
+        const currentIds = new Set();
+
+        newDetections.forEach(s => {
+            const id = s.track_id; // Using raw student_id or 'unknown'
+            // To prevent 'unknown' boxes from morphing into each other if there are multiple,
+            // we really should use standard ids, but since FastPipeline omits them, we will use a pseudo-index if unknown
+            const uniqueId = s.student_id ? s.student_id : `unknown_${s.bbox[0]}_${s.bbox[1]}`;
+            currentIds.add(uniqueId);
+
+            const tx1 = s.bbox[0] * scaleX;
+            const ty1 = s.bbox[1] * scaleY;
+            const tx2 = s.bbox[2] * scaleX;
+            const ty2 = s.bbox[3] * scaleY;
+
+            if (!smoothedDetections[uniqueId]) {
+                smoothedDetections[uniqueId] = {
+                    x1: tx1, y1: ty1, x2: tx2, y2: ty2,
+                    vx: 0, vy: 0,
+                    name: s.name, student_id: s.student_id,
+                    confidence: s.confidence, is_focused: s.is_focused, distraction_type: s.distraction_type
+                };
+            } else {
+                const current = smoothedDetections[uniqueId];
+                
+                // Calculate velocity based on target movement
+                current.vx = (tx1 - current.x1) / (dt || 0.016) * 0.3; // dampen velocity
+                current.vy = (ty1 - current.y1) / (dt || 0.016) * 0.3;
+
+                // Lerp position
+                current.x1 += (tx1 - current.x1) * lerpFactor;
+                current.y1 += (ty1 - current.y1) * lerpFactor;
+                current.x2 += (tx2 - current.x2) * lerpFactor;
+                current.y2 += (ty2 - current.y2) * lerpFactor;
+                
+                current.name = s.name;
+                current.student_id = s.student_id;
+                current.confidence = s.confidence;
+                current.is_focused = s.is_focused;
+                current.distraction_type = s.distraction_type;
+            }
+        });
+
+        // Clean up stale tracks
+        Object.keys(smoothedDetections).forEach(id => {
+           if (!currentIds.has(id)) delete smoothedDetections[id];
+        });
     }
 
     function drawBoundingBox(ctx, s) {
       const {x1, y1, x2, y2} = s;
-      let color = '#00e5ff'; // Default Tracking
-      if (!s.student_id) color = '#888888'; // Grey (Unknown Face)
-      else if (s.distraction_type === 'phone') color = '#ff3d57'; // Red
-      else if (s.distraction_type) color = '#ffb300'; // Yellow
-      else if (!s.is_focused) color = '#ffb300'; // Yellow
+      let color = '#00e5ff'; 
+      if (!s.student_id) color = '#888888'; 
+      else if (s.distraction_type === 'phone') color = '#ff3d57'; 
+      else if (s.distraction_type) color = '#ffb300'; 
+      else if (!s.is_focused) color = '#ffb300'; 
 
       ctx.strokeStyle = color;
       ctx.lineWidth = 2;
       ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
       
-      const labelColor = color;
       const tY = y1 - 22 > 10 ? y1 - 22 : y1 + 2;
-      ctx.fillStyle = labelColor;
+      ctx.fillStyle = color;
       ctx.fillRect(x1, tY, x2 - x1, 22);
 
-      let label = s.student_id ? `${s.name} [${s.student_id}] ${(s.confidence*100).toFixed(0)}%` : `Unknown [null]`;
+      let label = s.student_id ? `${s.name} [${s.student_id}] ${(s.confidence*100).toFixed(0)}%` : `Unknown`;
       ctx.fillStyle = "#000";
       ctx.font = "12px var(--font-mono)";
       ctx.fillText(label, x1 + 4, tY + 15);
-      
-      // Status dot icon
-      const dotColor = s.is_focused ? '#00e676' : s.distraction_type === 'phone' ? '#ff3d57' : '#ffb300';
-      ctx.beginPath();
-      ctx.arc(x2 - 10, tY + 11, 5, 0, 2*Math.PI);
-      ctx.fillStyle = dotColor;
-      ctx.fill();
     }
 
-    // Dynamic AI Request Polling (Gated for max CPU perf)
+    // Dynamic AI Request Polling
     async function triggerAiInference() {
       if (!isSessionActive || !monitorStream || isProcessingFrame) return;
       isProcessingFrame = true;
